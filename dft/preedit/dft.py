@@ -1,0 +1,206 @@
+import numpy as np
+
+# @lru_cache(maxsize=8)
+def _dft_matrix(n):
+    """
+    Build an n×n DFT matrix.
+    """
+    if n.ndim != 1:
+        raise ValueError("dft: input must be 1D")
+    
+    raise NotImplementedError
+
+
+# @lru_cache(maxsize=8)
+def _idft_matrix(n):
+    """
+    Build an n×n IDFT matrix (with 1/n scaling).
+    """
+    if n.ndim != 1:
+        raise ValueError("idft: input must be 1D")
+    
+    raise NotImplementedError
+
+
+def dft(x):
+    """
+    Compute a 1D DFT using a cached matrix.
+    Should reference _dft_matrix().
+
+    Args:
+        x (array_like, complex): 1D input.
+
+    Returns:
+        complex128 ndarray: DFT of x.
+
+    Raises:
+        ValueError: if x is not 1D.
+    """
+    raise NotImplementedError
+
+
+def idft(X):
+    """
+    Compute a 1D inverse DFT using a cached matrix.
+    Should reference _idft_matrix().
+
+    Args:
+        X (array_like, complex): 1D frequency data.
+
+    Returns:
+        complex128 ndarray: inverse DFT of X.
+
+    Raises:
+        ValueError: if X is not 1D.
+    """
+    raise NotImplementedError
+
+
+def dft2(img):
+    """
+    Compute a 2D DFT of a 2D array where zero‐frequency bin is moved to the middle of the array.
+    Should reference _dft_matrix().
+
+    Args:
+        img (array_like): 2D input array.
+
+    Returns:
+        complex128 ndarray: centered 2D DFT.
+
+    Raises:
+        ValueError: if img is not 2D.
+    """
+    raise NotImplementedError
+
+def idft2(F):
+    """
+    Compute a 2D inverse DFT from a centered 2D spectrum.
+    Should reference _idft_matrix().
+    
+    Args:
+        F (array_like): 2D centered DFT array.
+
+    Returns:
+        complex128 ndarray: Reconstructed 2D spatial array.
+
+    Raises:
+        ValueError: If F is not 2D.
+    """
+    raise NotImplementedError
+
+def compress_image_fft(img_bgr, threshold_percentage):
+    """Compress image by retaining top-magnitude Fourier coefficients per channel and return spectrum.
+
+    Args:
+        img_bgr (np.ndarray): Input BGR image of shape (H, W, 3).
+        threshold_percentage (float): Fraction of coefficients to retain (0.0 to 1.0).
+
+    Returns:
+        img_compressed (np.ndarray): Compressed image as uint8.
+        spectrum (np.ndarray): 3-channel centered log-magnitude spectrum, shape (H, W, 3).
+
+    Raises:
+        TypeError: If img_bgr is not a NumPy array or threshold_percentage is not a scalar.
+        ValueError: If img_bgr shape is invalid or threshold_percentage not in [0.0, 1.0].
+    """
+    if not isinstance(img_bgr, np.ndarray):
+        raise TypeError("compress_image_fft: img_bgr must be a NumPy array")
+    if img_bgr.ndim != 3 or img_bgr.shape[2] != 3:
+        raise ValueError("compress_image_fft: img_bgr must have shape (H, W, 3)")
+    if not np.isscalar(threshold_percentage):
+        raise TypeError("compress_image_fft: threshold_percentage must be a scalar")
+    if not (0.0 <= threshold_percentage <= 1.0):
+        raise ValueError("compress_image_fft: threshold_percentage must be in [0.0, 1.0]")
+
+    img = img_bgr.astype(np.float32)
+    H, W, _ = img.shape
+    total_coeffs = H * W
+
+    if threshold_percentage <= 0.0:
+        k = 0
+    elif threshold_percentage >= 1.0:
+        k = total_coeffs
+    else:
+        k = int(np.floor(total_coeffs * threshold_percentage))
+        k = max(k, 1)
+
+    F_all = np.fft.fft2(img, axes=(0, 1))
+    compressed_F = np.zeros_like(F_all)
+
+    for ch in range(3):
+        F = F_all[:, :, ch]
+        if k == 0:
+            Fm = np.zeros_like(F)
+        elif k >= total_coeffs:
+            Fm = F
+        else:
+            flat = F.ravel()
+            mags = np.abs(flat)
+            idx_top = np.argpartition(-mags, k - 1)[:k]
+            mask = np.zeros_like(mags, dtype=bool)
+            mask[idx_top] = True
+            Fm = (flat * mask).reshape(H, W)
+        compressed_F[:, :, ch] = Fm
+
+    recon = np.fft.ifft2(compressed_F, axes=(0, 1))
+    img_recon = np.real(recon).astype(np.float32)
+    img_compressed = np.clip(img_recon, 0, 255).astype(np.uint8)
+
+    shifted = np.fft.fftshift(compressed_F, axes=(0, 1))
+    mag_combined = np.mean(np.abs(shifted), axis=2)
+    spectrum_single = 20.0 * np.log1p(mag_combined).astype(np.float32)
+
+    spectrum = np.repeat(spectrum_single[:, :, np.newaxis], 3, axis=2)
+
+    return img_compressed, spectrum
+
+
+def low_pass_filter(img_bgr, radius):
+    """Apply low-pass filter in frequency domain and return image and spectrum.
+
+    Args:
+        img_bgr (np.ndarray): Input BGR image of shape (H, W, 3).
+        radius (float or int): Non-negative radius in pixels.
+
+    Returns:
+        img_low_pass (np.ndarray): Low-pass filtered image as uint8.
+        spectrum (np.ndarray): 3-channel centered log-magnitude spectrum, shape (H, W, 3).
+
+    Raises:
+        TypeError: If img_bgr is not a NumPy array or radius not a scalar.
+        ValueError: If img_bgr shape is invalid or radius is negative/not finite.
+    """
+    if not isinstance(img_bgr, np.ndarray):
+        raise TypeError("low_pass_filter: img_bgr must be a NumPy array")
+    if img_bgr.ndim != 3 or img_bgr.shape[2] != 3:
+        raise ValueError("low_pass_filter: img_bgr must have shape (H, W, 3)")
+    if not np.isscalar(radius):
+        raise TypeError("low_pass_filter: radius must be a scalar")
+    if not np.isfinite(radius) or radius < 0:
+        raise ValueError("low_pass_filter: radius must be a non-negative finite number")
+
+    img = img_bgr.astype(np.float32)
+    H, W, _ = img.shape
+
+    cy, cx = H // 2, W // 2
+    Y, X = np.ogrid[:H, :W]
+    dist2 = (Y - cy).astype(np.float32)**2 + (X - cx).astype(np.float32)**2
+    mask = dist2 <= (float(radius) ** 2)
+
+    F_all = np.fft.fft2(img, axes=(0, 1))
+    F_shifted = np.fft.fftshift(F_all, axes=(0, 1))
+
+    mask_3c = mask[:, :, None]
+    F_masked = F_shifted * mask_3c
+    F_unshifted = np.fft.ifftshift(F_masked, axes=(0, 1))
+
+    recon = np.fft.ifft2(F_unshifted, axes=(0, 1))
+    img_low = np.real(recon).astype(np.float32)
+    img_low_pass = np.clip(img_low, 0, 255).astype(np.uint8)
+
+    mag_combined = np.mean(np.abs(F_masked), axis=2)
+    spectrum_single = 20.0 * np.log1p(mag_combined).astype(np.float32)
+    spectrum = np.repeat(spectrum_single[:, :, np.newaxis], 3, axis=2)
+
+    return img_low_pass, spectrum
+
